@@ -1,0 +1,45 @@
+steps:
+  # Install dependencies
+  - name: 'node:22'
+    entrypoint: 'yarn'
+    args: ['install']
+
+  # Detect which function changed
+  - name: 'gcr.io/cloud-builders/git'
+    id: 'Detect Changes'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Checking for modified functions..."
+        CHANGED_FILES=$(git diff --name-only HEAD~1)
+        DEPLOY_FUNCTION=""
+        for FILE in $CHANGED_FILES; do
+          if [[ $FILE == src/functions/* ]]; then
+            FUNC_NAME=$(basename $FILE .function.ts)
+            DEPLOY_FUNCTION=$FUNC_NAME
+          fi
+        done
+        if [[ -z "$DEPLOY_FUNCTION" ]]; then
+          echo "No function changes detected."
+          exit 0
+        fi
+        echo "Deploying function: $DEPLOY_FUNCTION"
+        echo "$DEPLOY_FUNCTION" > /workspace/function_to_deploy.txt
+
+  # Deploy only the modified function
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'Deploy Function'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        DEPLOY_FUNCTION=$(cat /workspace/function_to_deploy.txt)
+        if [[ -z "$DEPLOY_FUNCTION" ]]; then
+          echo "No function to deploy."
+          exit 0
+        fi
+        echo "Deploying function: $DEPLOY_FUNCTION"
+        gcloud functions deploy $DEPLOY_FUNCTION --runtime=nodejs20 --trigger-http --allow-unauthenticated
+
+timeout: '1200s'
